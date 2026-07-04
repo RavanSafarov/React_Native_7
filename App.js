@@ -8,14 +8,14 @@ import { SQLiteProvider } from "expo-sqlite";
 
 async function initDb(db) {
   await db.execAsync(`
-    CREATE TABLE IF NOT EXISTS notes  (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,  
-      recipeId TEXT NOT NULL,
-      text TEXT NOT NULL,
-      createdAT TEXT DEFAULT (datetime('now'))
-    );
-    `
-  )
+  CREATE TABLE IF NOT EXISTS cooked (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recipeId TEXT NOT NULL,
+    name TEXT NOT NULL,
+    thumb TEXT,
+    createdAt TEXT DEFAULT (datetime('now'))
+  );
+`);
 }
 
 export default function App() {

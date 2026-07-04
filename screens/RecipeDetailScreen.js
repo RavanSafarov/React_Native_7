@@ -12,13 +12,16 @@ import {
   Linking,
   Button
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
-import { useRoute } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 
 const RecipeDetailsScreen = () => {
-  const db = useSQLiteContext()
-  const [notes, setNotes] = useState([])
+  const db = useSQLiteContext();
+
+  const [notes, setNotes] = useState([]);
   const [noteText, setNoteText] = useState("");
+  const [rating, setRating] = useState(0);
+  const [avgRating, setAvgRating] = useState(0);
+
   const { recipe } = useRoute().params;
   const navigation = useNavigation();
 
@@ -27,157 +30,112 @@ const RecipeDetailsScreen = () => {
       "SELECT * FROM notes WHERE recipeId = ? ORDER BY createdAt DESC",
       [recipe.id]
     );
-
     setNotes(rows);
   }
+
+ 
+  async function loadAverage() {
+    const row = await db.getFirstAsync(
+      "SELECT AVG(rating) as avg FROM notes WHERE recipeId = ?",
+      [recipe.id]
+    );
+
+    setAvgRating(row?.avg ? Number(row.avg) : 0);
+  }
+
+ 
+  async function refresh() {
+    await loadNotes();
+    await loadAverage();
+  }
+
+ 
   async function addNodes() {
     if (!noteText.trim()) return;
 
     await db.runAsync(
-      "INSERT INTO notes (recipeId, text) VALUES (?, ?)",
-      [recipe.id, noteText]
+      "INSERT INTO notes (recipeId, text, rating) VALUES (?, ?, ?)",
+      [recipe.id, noteText, rating]
     );
 
     setNoteText("");
-    loadNotes();
+    setRating(0);
+
+    await refresh();
   }
+
   async function deleteNodes(id) {
     await db.runAsync(
       "DELETE FROM notes WHERE id = ?",
       [id]
     );
 
-    loadNotes();
+    await refresh();
   }
 
-  useEffect(() => { loadNotes() }, [])
-  useEffect(() => { addNodes() }, [])
-  useEffect(() => { deleteNodes() }, [])
+  
+  useEffect(() => {
+    refresh();
+  }, []);
 
   useEffect(() => {
-    navigation.setOptions({ title: recipe.name });
-  }, [recipe]);
+    navigation.setOptions({
+      title: `${recipe.name} (${notes.length})`,
+    });
+  }, [recipe, notes]);
 
-  const [full, setFull] = useState();
-  const [instructions, setInstructions] = useState("");
-  const [smallInstructions, setSmallInstructions] = useState("");
-  const [instructionsAreFull, setInstructionsAreFull] = useState(false);
-
-  const getRecipe = () => {
-    fetch(`https://www.themealdb.com/api/json/v1/1/lookup.php?i=${recipe.id}`)
-      .then((r) => r.json())
-      .then((j) => setFull(j.meals[0]))
-      .catch((err) => {
-        console.log(err);
-      });
-  };
-
-  useEffect(() => {
-    getRecipe();
-  }, [recipe.id]);
-
-  const ingredients = [];
-
-  if (full) {
-    for (let i = 1; i <= 20; i++) {
-      const ing = full["strIngredient" + i];
-      const mea = full["strMeasure" + i];
-
-      if (ing && ing.trim()) ingredients.push(`${ing} = ${mea}`);
-    }
-  }
-
-  useEffect(() => {
-    if (full) {
-      setInstructions(full.strInstructions);
-      setSmallInstructions(full.strInstructions.slice(0, 200));
-    }
-  }, [full]);
-
-
+ 
   const onShare = async () => {
     try {
-      const result = await Share.share({
+      await Share.share({
         title: "Sharing recipe",
         message: `Готовлю: ${recipe.name} (${recipe.area})`,
       });
-    } catch (err) { }
+    } catch (err) {}
   };
 
-  let youtube = "";
-
-  if (full) {
-    youtube = full.strYoutube;
-  }
-
+  
   const onLinkYoutube = () => {
-    Linking.openURL(youtube);
-  };
-
-  const getCategoryObj = async () => {
-    const res = await fetch(
-      `https://www.themealdb.com/api/json/v1/1/categories.php`,
-    );
-    const json = await res.json();
-    const mapped = (json.categories || []).map((c) => ({
-      id: c.idCategory,
-      name: c.strCategory,
-      thumb: c.strCategoryThumb,
-    }));
-    const categoryObj = mapped.find(i => i.name === recipe.category)
-    console.log(categoryObj)
-    return categoryObj
+    if (recipe?.youtube) Linking.openURL(recipe.youtube);
   };
 
   return (
     <ScrollView style={styles.screen}>
       <Image source={{ uri: recipe.thumb }} style={styles.image} />
+
       <View style={styles.body}>
         <Text style={styles.title}>{recipe.name}</Text>
+
         <Text style={styles.meta}>Категория: {recipe.category}</Text>
         <Text style={styles.meta}>Страна: {recipe.area}</Text>
-        <Text style={styles.section}>Ингредиенты:</Text>
-        {ingredients.map((t) => {
-          return (
-            <Text key={t} style={styles.text}>
-              {t}
-            </Text>
-          );
-        })}
-        <Text style={{ marginTop: 10, color: "#C0C0C0", fontSize: 18 }}>
-          Инструкции: {instructionsAreFull ? instructions : smallInstructions}
-          {instructions.length < 200 ? (
-            <></>
-          ) : (
-            <Pressable onPress={() => setInstructionsAreFull((prev) => !prev)}>
-              <Text style={{ color: "#181717" }}>
-                {instructionsAreFull ? "   Show less" : "...Show more"}
-              </Text>
-            </Pressable>
-          )}
+
+        <Text style={styles.meta}>
+          Средняя оценка: {avgRating.toFixed(1)} ⭐
         </Text>
-      </View>
-      <Pressable
-        style={styles.pressable}
-        onPress={() => {
-          navigation.navigate("RecipeListByCategory", {
-            category: getCategoryObj(),
-          });
-        }}
-      >
-        <Text>Ещё из этой категории</Text>
-      </Pressable>
-      <Pressable style={styles.pressable} onPress={onShare}>
-        <Text>Поделиться рецептом</Text>
-      </Pressable>
-      {youtube ? (
-        <Pressable style={styles.pressable} onPress={onLinkYoutube}>
-          <Text>Youtube video</Text>
-        </Pressable>
-      ) : (
-        <></>
-      )}
-      <View>
+
+        <Text style={styles.section}>Заметки:</Text>
+
+        {notes.map((item) => (
+          <View
+            key={item.id}
+            style={{
+              flexDirection: "row",
+              justifyContent: "space-between",
+              padding: 10
+            }}
+          >
+            <View>
+              <Text>{"⭐".repeat(item.rating)}</Text>
+              <Text>{item.text}</Text>
+            </View>
+
+            <Button
+              title="Удалить"
+              onPress={() => deleteNodes(item.id)}
+            />
+          </View>
+        ))}
+
         <TextInput
           value={noteText}
           onChangeText={setNoteText}
@@ -189,27 +147,34 @@ const RecipeDetailsScreen = () => {
             borderRadius: 8
           }}
         />
-        <Button
-          title="Добавить заметку"
-          onPress={addNodes}
-        />
-        {notes.map(item => (
-          <View
-            key={item.id}
-            style={{
-              flexDirection: "row",
-              justifyContent: "space-between",
-              padding: 10
-            }}
-          >
-            <Text>{item.text}</Text>
-            <Button
-              title="Удалить"
-              onPress={() => deleteNodes(item.id)}
-            />
-          </View>
-        ))}
+
+        <Text style={{ marginLeft: 10 }}>Оценка:</Text>
+
+        <View style={{ flexDirection: "row", margin: 10 }}>
+          {[1, 2, 3, 4, 5].map((star) => (
+            <Pressable key={star} onPress={() => setRating(star)}>
+              <Text
+                style={{
+                  fontSize: 30,
+                  color: star <= rating ? "gold" : "gray"
+                }}
+              >
+                ★
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <Button title="Добавить заметку" onPress={addNodes} />
       </View>
+
+      <Pressable style={styles.pressable} onPress={onShare}>
+        <Text>Поделиться рецептом</Text>
+      </Pressable>
+
+      <Pressable style={styles.pressable} onPress={onLinkYoutube}>
+        <Text>Youtube video</Text>
+      </Pressable>
     </ScrollView>
   );
 };
@@ -218,16 +183,9 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#fff" },
   image: { width: "100%", height: 240 },
   body: { padding: 16 },
-  title: { fontSize: 24, fontWeight: "bold", color: "#1e293b" },
+  title: { fontSize: 24, fontWeight: "bold" },
   meta: { fontSize: 14, color: "#64748b", marginTop: 4 },
-  section: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginTop: 20,
-    marginBottom: 6,
-    color: "#1e29eb",
-  },
-  text: { fontSize: 15, color: "#64748b", marginTop: 40 },
+  section: { fontSize: 18, fontWeight: "bold", marginTop: 20 },
   pressable: {
     marginTop: 8,
     alignItems: "center",
